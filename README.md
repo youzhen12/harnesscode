@@ -1,6 +1,5 @@
-# HarnessCode Go 版
-
-这是 HarnessCode 的 Go 重写版本，一个面向“AI 驱动开发循环”的命令行工具。
+# HarnessCode 
+一个面向“AI 驱动开发循环”的命令行工具。
 
 核心目标：
 

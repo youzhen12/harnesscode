@@ -17,6 +17,9 @@ type Config struct {
 	Backend    string `yaml:"backend"`
 	AutoCommit int    `yaml:"auto_commit"`
 	WebhookURL string `yaml:"webhook_url,omitempty"`
+	// ManualFeatures 为 true 时，表示 feature_list.json 完全由用户手动维护，
+	// 初始化和循环过程中不应通过 initializer 自动从文档提取/重建特性列表。
+	ManualFeatures bool `yaml:"manual_features,omitempty"`
 }
 
 // Paths 封装项目相关路径。

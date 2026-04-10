@@ -53,9 +53,31 @@ func Run() error {
 	fmt.Println("  Backend:", be.Name())
 	fmt.Println("  Project:", cfg.ProjectID)
 
-	// 初始加载一次 feature_list 作为进度监控基线。
+	// 初始加载一次 feature_list 作为进度监控基线；如不存在则尝试运行 initializer 进行引导。
 	var lastFeatures *state.FeatureList
-	if fl, err := state.LoadFeatureList(paths.Root); err == nil {
+	fl, ferr := state.LoadFeatureList(paths.Root)
+	if ferr != nil {
+		if os.IsNotExist(ferr) {
+			if cfg.ManualFeatures {
+				fmt.Println("[hc-go] manual_features enabled but no .harnesscode/feature_list.json found; please create it manually.")
+			} else {
+				fmt.Println("[hc-go] no .harnesscode/feature_list.json found; running initializer once to bootstrap features")
+				initPrompt := "Scan PRD and tech spec documents under input/ and docs/, then build or update .harnesscode/feature_list.json, then exit cleanly."
+				start := time.Now()
+				if _, err := runAgentOnce(paths.Root, be, "initializer", initPrompt); err != nil {
+					fmt.Println("[hc-go] initializer error:", err)
+					_ = store.RecordSession("initializer", false, time.Since(start).Seconds())
+				} else {
+					_ = store.RecordSession("initializer", true, time.Since(start).Seconds())
+				}
+				// 再尝试一次加载 feature_list，但失败不应阻塞主循环。
+				fl, _ = state.LoadFeatureList(paths.Root)
+			}
+		} else {
+			fmt.Println("[hc-go] warning: failed to load feature_list.json:", ferr)
+		}
+	}
+	if fl != nil {
 		lastFeatures = fl
 		// 启动时发送一次当前进度。
 		_ = notifyProgress(cfg.WebhookURL, cfg.ProjectID, nil, fl)
@@ -80,6 +102,43 @@ func Run() error {
 		}
 
 		nextAgent, nextArgs := parseDecision(output)
+
+		// 每次 orchestrator 决策后，基于当前 feature_list 做一次硬性检查。
+		var (
+			statsLoaded                                       bool
+			totalFeatures, completedFeatures, pendingFeatures int
+		)
+		if flNow, ferr := state.LoadFeatureList(paths.Root); ferr == nil && flNow != nil {
+			statsLoaded = true
+			for _, f := range flNow.Features {
+				totalFeatures++
+				switch f.Status {
+				case "completed":
+					completedFeatures++
+				case "pending":
+					pendingFeatures++
+				}
+			}
+			// 所有 feature 已完成，而 orchestrator 仍未给出 complete 时，强制结束并生成报告。
+			if totalFeatures > 0 && pendingFeatures == 0 && nextAgent != "complete" {
+				fmt.Println("[hc-go] all features completed in feature_list.json; forcing completion")
+				if path, rerr := report.GenerateDevReport(paths.Root, cfg.ProjectID, "final"); rerr != nil {
+					fmt.Println("[hc-go] failed to generate final report:", rerr)
+				} else {
+					fmt.Println("[hc-go] final report:", path)
+				}
+				return nil
+			}
+		}
+
+		// manual_features 模式下，禁止运行 initializer，强制 orchestrator 重新决策。
+		if cfg.ManualFeatures && strings.ToLower(nextAgent) == "initializer" {
+			fmt.Println("[hc-go] manual_features enabled; skipping initializer and asking orchestrator to reconsider")
+			time.Sleep(5 * time.Second)
+			iteration++
+			continue
+		}
+
 		if nextAgent == "" {
 			fmt.Println("[hc-go] no decision from orchestrator, stopping")
 			return nil
@@ -91,6 +150,13 @@ func Run() error {
 				_, _ = report.GenerateDevReport(paths.Root, cfg.ProjectID, "final")
 			}
 			return nil
+		}
+		// 如果 orchestrator 要求 coder，但当前 feature_list 中已经没有 pending，则跳过这一轮，让 orchestrator 重新决策。
+		if nextAgent == "coder" && statsLoaded && totalFeatures > 0 && pendingFeatures == 0 {
+			fmt.Println("[hc-go] orchestrator requested coder but no pending features in feature_list.json; skipping coder and asking orchestrator to reconsider")
+			time.Sleep(5 * time.Second)
+			iteration++
+			continue
 		}
 
 		fmt.Printf("[hc-go] next: %s %s\n", nextAgent, nextArgs)
@@ -109,6 +175,23 @@ func Run() error {
 		if fl, err := state.LoadFeatureList(paths.Root); err == nil {
 			_ = notifyProgress(cfg.WebhookURL, cfg.ProjectID, lastFeatures, fl)
 			lastFeatures = fl
+			// 如果所有 feature 已完成，则直接结束循环并生成最终报告。
+			var total, pending int
+			for _, f := range fl.Features {
+				total++
+				if f.Status == "pending" {
+					pending++
+				}
+			}
+			if total > 0 && pending == 0 {
+				fmt.Println("[hc-go] all features completed in feature_list.json; stopping loop")
+				if path, rerr := report.GenerateDevReport(paths.Root, cfg.ProjectID, "final"); rerr != nil {
+					fmt.Println("[hc-go] failed to generate final report:", rerr)
+				} else {
+					fmt.Println("[hc-go] final report:", path)
+				}
+				return nil
+			}
 		}
 
 		time.Sleep(5 * time.Second)

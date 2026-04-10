@@ -32,9 +32,7 @@ func (m *Manager) SaveBugPattern(summary, location, action string) (string, erro
 
 ## Location
 
-```
-%s
-```
+    %s
 
 ## Solution
 

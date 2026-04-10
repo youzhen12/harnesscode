@@ -1,5 +1,7 @@
-# HarnessCode 
+# HarnessCode
 一个面向“AI 驱动开发循环”的命令行工具。
+
+> 架构与运行原理详见：[ARCHITECTURE.md](./ARCHITECTURE.md)
 
 核心目标：
 

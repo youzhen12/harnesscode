@@ -151,6 +151,11 @@ HarnessCode 的调度和进度监控依赖 `.harnesscode/feature_list.json`。
 - 手工编写：你在接入初期手工写好一份 feature_list，描述想让 AI 完成的功能清单；
 - 文档驱动自动生成：你把技术方案写在 `.harnesscode/docs/*.md`、项目根 `docs/` 或 `input/` 下，由 `initializer` agent 在 `hc start` 的循环中解析这些文档、生成和更新 `feature_list.json`，使其与技术方案对齐，作为“执行文档”。
 
+此外，你可以通过以下文件“定制规则”，让测试和审查阶段完全以技术方案和你的规则为准：
+
+- `.harnesscode/test_rules.md`：自定义测试规则（例如必须覆盖的模块、边界条件、性能/安全约束）。`tester` agent 会在生成和运行测试时参考这些规则，并在 `test_report.json` 中标明违反哪条规则。
+- `.harnesscode/review_rules.md`：自定义审查规则（例如编码规范、安全红线、架构约束）。`reviewer` agent 会在审查代码时按这些规则给出结论，并在 `review_report.json` 中标明每条问题对应的规则或设计约束。
+
 后续由 orchestrator / initializer / coder / tester / fixer / reviewer 等 agent 基于该文件来驱动开发，loop 只负责读取和对比、决定是否结束循环。
 
 ---

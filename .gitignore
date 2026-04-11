@@ -1,0 +1,5 @@
+
+# HarnessCode runtime data
+.harnesscode/
+dev-log.txt
+cycle-log.txt

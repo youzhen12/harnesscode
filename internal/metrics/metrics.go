@@ -108,3 +108,35 @@ func (s *Store) SuccessRate(agent string, recentN int) (float64, error) {
 	}
 	return float64(okCount) / float64(len(recent)), nil
 }
+
+// LastRun 表示某个 Agent 最近一次运行的概要信息。
+//
+// 用于在 `hc status` 中输出最近一次 loop / agent 运行的时间、结果与耗时，
+// 以增强可观测性，而无需解析完整日志文件。
+type LastRun struct {
+	Time     time.Time `json:"time"`
+	Success  bool      `json:"success"`
+	Duration float64   `json:"duration"`
+}
+
+// LastRun 返回指定 agent 最近一次运行记录；如无记录则返回 (nil, nil)。
+func (s *Store) LastRun(agent string) (*LastRun, error) {
+	data, err := os.ReadFile(s.filePath)
+	if err != nil {
+		return nil, err
+	}
+	var p payload
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil, err
+	}
+	am, ok := p.Agents[agent]
+	if !ok || len(am.Recent) == 0 {
+		return nil, nil
+	}
+	r := am.Recent[len(am.Recent)-1]
+	return &LastRun{
+		Time:     r.Time,
+		Success:  r.Success,
+		Duration: r.Duration,
+	}, nil
+}

@@ -41,17 +41,14 @@ func GenerateDevReport(projectRoot, projectID string, reportType string) (string
 		reportType = "final"
 	}
 
-	// 统计 feature 状态。
+	// 统计 feature 状态：复用 state 包中的进度抽象，
+	// 保证与 loop 中的结束条件判断逻辑保持一致。
 	var total, completed, pending int
-	if fl, err := state.LoadFeatureList(projectRoot); err == nil {
-		for _, f := range fl.Features {
-			if f.Status == "completed" {
-				completed++
-			} else if f.Status == "pending" {
-				pending++
-			}
-		}
-		total = len(fl.Features)
+	if fl, err := state.LoadFeatureList(projectRoot); err == nil && fl != nil {
+		stats := state.ComputeFeatureStats(fl)
+		total = stats.Total
+		completed = stats.Completed
+		pending = stats.Pending
 	}
 
 	reportsDir := filepath.Join(projectRoot, ".harnesscode", "reports")

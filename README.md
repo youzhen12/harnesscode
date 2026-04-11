@@ -69,6 +69,7 @@ hc init
   - `backend`: `opencode` 或 `claude`
   - `auto_commit`: 当前 Go 版暂未使用，默认 `1`
 - 创建 `input/prd` 和 `input/techspec` 目录
+- 在项目根创建 `docs/` 目录，并在 `.harnesscode/` 下创建 `.harnesscode/docs/` 目录，用于存放和消费技术方案文档
 - 更新项目根的 `.gitignore`，忽略 `.harnesscode/`、`dev-log.txt` 等
 - 根据配置的 backend 自动安装 agents：
   - OpenCode:
@@ -108,7 +109,7 @@ webhook_url: "https://your-webhook-endpoint"
 
 ---
 
-## 4. 准备 feature_list
+## 4. 准备 feature_list（执行文档）
 
 HarnessCode 的调度和进度监控依赖 `.harnesscode/feature_list.json`。
 
@@ -145,7 +146,12 @@ HarnessCode 的调度和进度监控依赖 `.harnesscode/feature_list.json`。
   - 其它状态会原样保留
 - `dependencies`：依赖的其它 feature id 列表（可选）
 
-> 后续由 orchestrator / initializer / coder 等 agent 来更新该文件，loop 只负责读取和对比。
+通常有两种用法：
+
+- 手工编写：你在接入初期手工写好一份 feature_list，描述想让 AI 完成的功能清单；
+- 文档驱动自动生成：你把技术方案写在 `.harnesscode/docs/*.md`、项目根 `docs/` 或 `input/` 下，由 `initializer` agent 在 `hc start` 的循环中解析这些文档、生成和更新 `feature_list.json`，使其与技术方案对齐，作为“执行文档”。
+
+后续由 orchestrator / initializer / coder / tester / fixer / reviewer 等 agent 基于该文件来驱动开发，loop 只负责读取和对比、决定是否结束循环。
 
 ---
 
@@ -163,21 +169,22 @@ hc start
 2. 检查 backend CLI 是否可用（`opencode` 或 `claude`）
 3. 创建或打开指标文件：
    - `$HOME/.harnesscode/projects/<project_id>/learning/metrics.json`
-4. （如果存在）读取 `.harnesscode/feature_list.json`：
-   - 启动时发送一次当前进度通知
-5. 循环执行：
-   - 调用 orchestrator agent
-     - orchestrator 输出类似：
-       `--- ORCHESTRATOR NEXT: coder  backend 1 ---`
-   - 解析下一 agent 和参数
-   - 若 agent 为 `complete`：
-     - 生成最终开发报告：`./.harnesscode/reports/dev-report-final-*.md`
-     - 退出循环
-   - 否则调用指定 agent（coder/tester/fixer/reviewer/initializer 等）
-   - 记录该 agent 的运行时长和成功与否到 metrics.json
-   - 重新加载 feature_list 并与上一轮 diff：
-     - 在控制台打印进度变化
-     - 如果配置了 webhook_url，则通过 IM 发送进度摘要
+4. 尝试读取 `.harnesscode/feature_list.json`：
+   - 如存在，则作为当前“执行文档”基线并发送一次进度通知；
+   - 如不存在且 `manual_features` 未开启，则在循环内调起 `initializer`，基于 `.harnesscode/docs/` / `docs/` / `input/` 下的技术方案生成 `feature_list.json`；
+5. 进入主循环，每一轮：
+   - 调用 orchestrator agent，读取 `.harnesscode/docs/` + `.harnesscode/feature_list.json` + 各种报告（test/review）并输出：
+     `--- ORCHESTRATOR NEXT: [AGENT] [args] ---`
+   - 按 orchestrator 的决策依次调用：
+     - `initializer`：从技术方案文档生成/更新 feature_list（执行文档）；
+     - `coder`：根据 `.harnesscode/docs/` + feature_list 实现或优化代码；
+     - `tester`：为相关 API/行为编写或补充测试用例，并运行测试，将结果写入 `.harnesscode/test_report.json`；
+     - `fixer`：根据测试报告和审查报告修复问题，更新报告；
+     - `reviewer`：审查最近改动，将问题写入 `.harnesscode/review_report.json`；
+   - 每轮结束后重新加载 feature_list 并与上一轮 diff：
+     - 在控制台打印进度变化；
+     - 如果配置了 `webhook_url`，则通过 IM 发送进度摘要；
+   - 当所有 feature 都标记为 `completed`，且 orchestrator 认为测试和审查通过时，输出 `complete`，生成最终报告并退出循环。
 
 loop 有一个空闲超时：
 

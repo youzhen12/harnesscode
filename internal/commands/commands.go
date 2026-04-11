@@ -12,6 +12,7 @@ import (
 	"harnesscode-go/internal/loop"
 	"harnesscode-go/internal/metrics"
 	"harnesscode-go/internal/project"
+	"harnesscode-go/internal/state"
 )
 
 // Init initializes project configuration.
@@ -68,6 +69,14 @@ func Init() error {
 	_ = os.MkdirAll(inputPrd, 0o755)
 	_ = os.MkdirAll(inputTech, 0o755)
 
+	// 在项目根初始化 docs 目录，便于存放技术方案与说明文档。
+	rootDocs := filepath.Join(paths.Root, "docs")
+	_ = os.MkdirAll(rootDocs, 0o755)
+
+	// 为技术方案预留 .harnesscode/docs 目录，供各 Agent 读取和参考。
+	hcDocsDir := filepath.Join(paths.HarnessDir, "docs")
+	_ = os.MkdirAll(hcDocsDir, 0o755)
+
 	// 简单更新 .gitignore，避免重复添加。
 	if err := ensureGitignore(paths.Root); err != nil {
 		return err
@@ -115,7 +124,7 @@ func Status() error {
 		return nil
 	}
 
-	agents := []string{"orchestrator", "coder", "tester", "fixer", "reviewer"}
+	agents := []string{"orchestrator", "initializer", "coder", "tester", "fixer", "reviewer"}
 	fmt.Println()
 	fmt.Println("Agent success rates:")
 	for _, a := range agents {
@@ -125,6 +134,42 @@ func Status() error {
 			continue
 		}
 		fmt.Printf("  %s: %.1f%%\n", a, rate*100)
+	}
+
+	// 输出 feature_list 的整体进度摘要，方便快速了解当前阶段。
+	fmt.Println()
+	fmt.Println("Feature progress:")
+	if fl, err := state.LoadFeatureList(paths.Root); err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("  (no .harnesscode/feature_list.json yet)")
+		} else {
+			fmt.Println("  (failed to load feature_list.json:", err, ")")
+		}
+	} else {
+		stats := state.ComputeFeatureStats(fl)
+		fmt.Printf("  features: total=%d, completed=%d, pending=%d\n", stats.Total, stats.Completed, stats.Pending)
+	}
+
+	// 输出最近一次各 Agent 运行的时间与结果，作为 loop 摘要。
+	fmt.Println()
+	fmt.Println("Last agent runs:")
+	for _, a := range agents {
+		lr, err := store.LastRun(a)
+		if err != nil {
+			fmt.Printf("  %s: n/a (%v)\n", a, err)
+			continue
+		}
+		if lr == nil {
+			fmt.Printf("  %s: no runs recorded yet\n", a)
+			continue
+		}
+		status := "ok"
+		if !lr.Success {
+			status = "error"
+		}
+		// 使用本地时间和简洁格式，便于阅读。
+		ts := lr.Time.Local().Format("2006-01-02 15:04:05")
+		fmt.Printf("  %s: %s at %s (%.1fs)\n", a, status, ts, lr.Duration)
 	}
 	return nil
 }

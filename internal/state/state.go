@@ -24,6 +24,37 @@ type FeatureList struct {
 	Features []Feature `json:"features"`
 }
 
+// FeatureStats 用于对 feature_list.json 做聚合统计，便于在 loop 中统一判断进度
+// 和是否全部完成等条件。
+type FeatureStats struct {
+	Total     int
+	Completed int
+	Pending   int
+}
+
+// ComputeFeatureStats 根据给定的 FeatureList 计算聚合统计数据。
+func ComputeFeatureStats(fl *FeatureList) FeatureStats {
+	var s FeatureStats
+	if fl == nil {
+		return s
+	}
+	for _, f := range fl.Features {
+		s.Total++
+		switch f.Status {
+		case "completed":
+			s.Completed++
+		case "pending":
+			s.Pending++
+		}
+	}
+	return s
+}
+
+// AllFeaturesCompleted 返回当前统计下是否“存在至少一个 feature 且全部非 pending”。
+func AllFeaturesCompleted(stats FeatureStats) bool {
+	return stats.Total > 0 && stats.Pending == 0
+}
+
 // MissingItem/Info 对应 missing_info.json
 type MissingItem struct {
 	ID          int       `json:"id"`
